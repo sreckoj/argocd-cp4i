@@ -1,0 +1,15 @@
+---
+#
+# Aspera - Operator version 1.5.13
+#
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: aspera-hsts-operator
+  namespace: openshift-operators
+spec:
+  channel: v1.5
+  installPlanApproval: Automatic
+  name: aspera-hsts-operator
+  source: aspera-operators
+  sourceNamespace: openshift-marketplace

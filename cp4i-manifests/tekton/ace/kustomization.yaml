@@ -1,0 +1,5 @@
+resources:
+# Tasks:
+- tasks/ace-build-and-upload-bar.yaml
+# Pipelines
+- pipelines/ace-01-build-and-upload-bar.yaml

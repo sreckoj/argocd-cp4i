@@ -1,0 +1,14 @@
+---
+apiVersion: integration.ibm.com/v1beta1
+kind: PlatformNavigator
+metadata:
+  name: integration-ui
+  labels:
+    backup.integration.ibm.com/component: platformnavigator
+  namespace: cp4i
+spec:
+  license:
+    accept: true
+    license: L-JTPV-KYG8TF
+  replicas: 1
+  version: 16.1.0

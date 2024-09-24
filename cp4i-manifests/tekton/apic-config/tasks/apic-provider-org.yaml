@@ -1,0 +1,233 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: apic-provider-org
+  namespace: cp4i-pipelines
+spec:
+  description: >-
+    This task does configures email server settings and creates a provider organzation
+  workspaces:
+    - name: cp4i-ws
+      description: Holds temporary configuration files
+  params:
+    - name: APIC_INST_NAME
+    - name: NAMESPACE
+    - name: INSTALL_MAILCATCHER
+    - name: MAILSERVER_HOST
+    - name: MAILSERVER_PORT
+    - name: APIC_CMC_USER_EMAIL
+    - name: PORG_NAME
+    - name: PORG_TITLE
+  steps:
+    - name: config
+      image: 'image-registry.openshift-image-registry.svc:5000/openshift/cli:latest'
+      workingDir: $(workspaces.cp4i-ws.path)
+      script: |
+        # ---------------------------------------------------------------------
+        # Global variables
+        # ---------------------------------------------------------------------
+        
+        APIC_MAILSERVER_NAME='dummy-mail-server'
+        APIC_ADMIN_USER='admin'
+        APIC_ADMIN_ORG='admin'
+        APIC_ADMIN_REALM='admin/default-idp-1'
+        APIC_CMC_USER='integration-admin'
+        APIC_USER_REGISTRY='integration-keycloak'
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** INSTALL MAILCATCHER ***"
+        # -----------------------------------------------------------------------------
+
+        cat << EOF > mailcatcher.yaml
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: mailcatcher
+        spec: {}
+        ---
+        kind: Deployment
+        apiVersion: apps/v1
+        metadata:
+          name: mailcatcher
+          namespace: mailcatcher
+          labels:
+            app: mailcatcher
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: mailcatcher
+          revisionHistoryLimit: 1
+          template:
+            metadata:
+              labels:
+                app: mailcatcher
+            spec:
+              containers:
+                - name: mailcatcher
+                  image: quay.io/evl.ms/mailcatcher
+                  ports:
+                    - containerPort: 1025
+                    - containerPort: 1080
+              imagePullSecrets:
+                - name: regcred    
+        ---
+        kind: Service
+        apiVersion: v1
+        metadata:
+          name: postfix
+          namespace: mailcatcher
+          labels:
+            app: mailcatcher
+        spec:
+          ports:
+            - port: 25
+              name: mailcatcher-smtp
+              targetPort: 1025
+              protocol: TCP
+          selector:
+            app: mailcatcher
+        ---
+        kind: Service
+        apiVersion: v1
+        metadata:
+          name: mailcatcher
+          namespace: mailcatcher
+          labels:
+            app: mailcatcher
+        spec:
+          ports:
+            - name: mailcatcher-web
+              port: 1080
+              targetPort: 1080
+              protocol: TCP
+          selector:
+            app: mailcatcher
+        ---
+        kind: Route
+        apiVersion: route.openshift.io/v1
+        metadata:
+          name: mailcatcher
+          namespace: mailcatcher
+          labels:
+            app: mailcatcher
+        spec:
+          to:
+            kind: Service
+            name: mailcatcher
+            weight: 100
+          port:
+            targetPort: mailcatcher-web
+          tls:
+            termination: edge
+          wildcardPolicy: None
+        EOF
+        if $(params.INSTALL_MAILCATCHER) ; then
+          oc apply -f mailcatcher.yaml
+          MAILSERVER_HOST='postfix.mailcatcher.svc.cluster.local'
+          MAILSERVER_PORT=25
+          MAILCATCHER_UI=https://$(oc get route "mailcatcher" -n mailcatcher -o jsonpath="{.spec.host}")
+          echo "> Installed - mail UI: ${MAILCATCHER_UI}"
+        else
+          echo "> Skipped"
+        fi
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** GET ADMIN PASSWORD AND ROUTES ***"
+        # -----------------------------------------------------------------------------
+        APIC_ADMIN_PWD=$(oc get secret "$(params.APIC_INST_NAME)-mgmt-admin-pass" -n $(params.NAMESPACE) -o jsonpath="{.data.password}"| base64 -d)
+        APIC_MGMT_SERVER=$(oc get route "$(params.APIC_INST_NAME)-mgmt-platform-api" -n $(params.NAMESPACE) -o jsonpath="{.spec.host}")
+        CMC_UI_ENDPOINT=$(oc get route "$(params.APIC_INST_NAME)-mgmt-admin" -n $(params.NAMESPACE) -o jsonpath="{.spec.host}")
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** DOWNLOAD CLI AND ACCEPT LICENSE ***"
+        # -----------------------------------------------------------------------------
+        curl -k https://${CMC_UI_ENDPOINT}/client-downloads/toolkit-linux.tgz --output toolkit-linux.tgz
+        tar -xvzf toolkit-linux.tgz
+        chmod 755 apic
+        rm toolkit-linux.tgz
+        ./apic --accept-license --live-help=false
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** LOGIN TO APIC ***"
+        # -----------------------------------------------------------------------------
+        ./apic client-creds:clear
+        ./apic login --server $APIC_MGMT_SERVER --realm $APIC_ADMIN_REALM -u $APIC_ADMIN_USER -p $APIC_ADMIN_PWD
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** ENABLE API-KEY MULTIPLE TIME USAGE ***"
+        # -----------------------------------------------------------------------------
+        cat << EOF | ./apic cloud-settings:update --server $APIC_MGMT_SERVER -
+        api_key_multiple_uses: true
+        EOF
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** SETUP MAIL SERVER ***"
+        # -----------------------------------------------------------------------------
+        # Find mail server
+        result=$(./apic mail-servers:get --server $APIC_MGMT_SERVER --org $APIC_ADMIN_ORG --format json $APIC_MAILSERVER_NAME)
+
+        # Prepare new configuration
+        cat << EOF > mail-server.json 
+        {
+            "name": "${APIC_MAILSERVER_NAME}",
+            "title": "${APIC_MAILSERVER_NAME}",
+            "host": "$(params.MAILSERVER_HOST)",
+            "port": $(params.MAILSERVER_PORT),
+            "credentials": {
+                "password": "",
+                "username": ""
+            },
+            "timeout": 10000,
+            "secure": false
+        }
+        EOF
+
+        # If mail server configuration already exists, just update it,
+        # otherwise create a new one
+        if [[ $result == "$APIC_MAILSERVER_NAME"* ]]; then
+          ./apic mail-servers:update --server $APIC_MGMT_SERVER --org $APIC_ADMIN_ORG $APIC_MAILSERVER_NAME mail-server.json
+          echo "> Mail server configuration updated."
+        else 
+          ./apic mail-servers:create --server $APIC_MGMT_SERVER --org $APIC_ADMIN_ORG mail-server.json
+          echo "> A new mail server configuration created."
+        fi
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** UPDATE CMC ADMIN EMAIL INFO ***"
+        # -----------------------------------------------------------------------------
+        cat << EOF | ./apic users:update --server $APIC_MGMT_SERVER --org $APIC_ADMIN_ORG --user-registry $APIC_USER_REGISTRY $APIC_CMC_USER -
+        email: $(params.APIC_CMC_USER_EMAIL)
+        EOF
+        echo "> CMC admin email updated"
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** CREATE PROVIDER ORGANIZATION ***"
+        # -----------------------------------------------------------------------------
+
+        # Get CMC user URL
+        USER_URL=$(./apic users:list --server $APIC_MGMT_SERVER --org $APIC_ADMIN_ORG --user-registry $APIC_USER_REGISTRY | awk -v user=$APIC_CMC_USER '$1 == user {print $4}')
+
+        # Prepare provider oganization definiton 
+        # CMC user will be the owner
+        cat << EOF > provider-org.json
+        {
+          "type": "org",
+          "org_type": "provider",
+          "name": "$(params.PORG_NAME)",
+          "title": "$(params.PORG_TITLE)",
+          "state": "enabled",
+          "owner_url": "${USER_URL}"
+        }
+        EOF
+
+        # Check if the organization already exists
+        PORG=$(./apic orgs:list --server $APIC_MGMT_SERVER | awk -v porgname=$(params.PORG_NAME) '$1 == porgname { ++count } END { print count }')
+
+        # If it does not exist, create it
+        if [ -z $PORG ]; then
+          ./apic orgs:create --server $APIC_MGMT_SERVER provider-org.json
+          echo "> Provider organization $(params.PORG_NAME) has been created."
+        else
+          echo "> Provider organization $(params.PORG_NAME) already exists."
+        fi

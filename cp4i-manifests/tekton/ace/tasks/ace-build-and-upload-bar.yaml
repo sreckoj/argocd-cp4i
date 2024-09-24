@@ -1,0 +1,57 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: ace-build-and-upload-bar
+  namespace: cp4i-pipelines
+spec:
+  description: >-
+    This task builds BAR file form the application source available on the git repository
+    and uploads it to the Integration Dashboard's content server. 
+    If the BAR with the same name already exists it gets updated.
+  workspaces:
+    - name: ace-build-ws
+      description: Holds temporary files
+  params:
+    - name: GIT_ORGANIZATION
+    - name: SOURCE_REPO
+    - name: NAMESPACE
+    - name: DASHBOARD_NAME
+    - name: DASHBOARD_USER
+    - name: DASHBOARD_PASSWORD
+  steps:
+    - name: clone-ace-project
+      image: quay.io/cloudctl/git:latest
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        git clone $(params.GIT_ORGANIZATION)/$(params.SOURCE_REPO)
+    - name: build-bar
+      image: 'cp.icr.io/cp/appc/ace-server-prod:12.0.12.4-r1-20240724-121009@sha256:7689c374a16a767aa9aa32422370282fbd48a3838a944f2566424bd56bdf0c92'
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        # ---------------------------------------------------------
+        # The name of the source repo is the same as the name 
+        # of the application and will be also used for the BAR name 
+        # ---------------------------------------------------------
+        . /opt/ibm/ace-12/server/bin/mqsiprofile
+        ibmint package --input-path ./$(params.SOURCE_REPO) --output-bar-file $(params.SOURCE_REPO).bar
+        ls -al
+    - name: get-dashboard-api-endpoint
+      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        API_EP=$(oc get route -n $(params.NAMESPACE) $(params.DASHBOARD_NAME)-api -o jsonpath='{.spec.host}')
+        echo $API_EP > api_endpoint.txt
+        cat api_endpoint.txt
+    - name: upload-bar
+      image: quay.io/codefreshplugins/curl-jq:latest
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        API_EP=$(cat api_endpoint.txt)
+        echo "API endpoint: $API_EP"
+        echo "Getting token..."
+        BASIC_AUTH_CREDENTIALS=$(echo -n "$(params.DASHBOARD_USER):$(params.DASHBOARD_PASSWORD)" | base64)
+        TOKEN=$(curl -X POST https://$API_EP/api/v1/tokens -H "Authorization: Basic $BASIC_AUTH_CREDENTIALS" | jq -r '.accessToken')
+        echo "Uploading BAR..."
+        BAR_NAME=$(params.SOURCE_REPO)
+        BAR_URL=$(curl -X PUT https://$API_EP/api/v1/bar-files/$BAR_NAME -T $BAR_NAME.bar -H "Content-Type: application/octet-stream" -H "Authorization: Bearer $TOKEN" | jq -r '.url')
+        echo "BAR URL: $BAR_URL"

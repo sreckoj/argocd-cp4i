@@ -1,0 +1,179 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: apic-catalog-and-consumer-org
+  namespace: cp4i-pipelines
+spec:
+  description: >-
+    This task creates a new catalog and consumer organization
+  workspaces:
+    - name: cp4i-ws
+      description: Holds temporary configuration files
+  params:
+    - name: APIC_API_KEY
+    - name: APIC_INST_NAME
+    - name: NAMESPACE
+    - name: PORG_NAME
+    - name: CATALOG_NAME
+    - name: CATALOG_TITLE
+    - name: CATALOG_SUMMARY
+    - name: CONSUMER_ORG_NAME
+    - name: CONSUMER_USER_NAME
+    - name: CONSUMER_USER_PWD
+    - name: CONSUMER_USER_FIRST_NAME
+    - name: CONSUMER_USER_LAST_NAME
+    - name: CONSUMER_USER_EMAIL
+  steps:
+    - name: config
+      image: 'image-registry.openshift-image-registry.svc:5000/openshift/cli:latest'
+      workingDir: $(workspaces.cp4i-ws.path)
+      script: |
+        # ---------------------------------------------------------------------
+        # Global variables
+        # ---------------------------------------------------------------------
+        APIC_SANDBOX_CATALOG='sandbox'
+        APIC_PORTAL_TYPE='drupal'
+        APIC_CMC_USER='integration-admin'
+        APIC_USER_REGISTRY='integration-keycloak'
+        
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** GET MANAGEMENT SERVER ROUTE ***"
+        # -----------------------------------------------------------------------------
+        APIC_MGMT_SERVER=$(oc get route "$(params.APIC_INST_NAME)-mgmt-platform-api" -n $(params.NAMESPACE) -o jsonpath="{.spec.host}")
+        CMC_UI_ENDPOINT=$(oc get route "$(params.APIC_INST_NAME)-mgmt-admin" -n $(params.NAMESPACE) -o jsonpath="{.spec.host}")
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** DOWNLOAD CLI AND ACCEPT LICENSE ***"
+        # -----------------------------------------------------------------------------
+        curl -k https://${CMC_UI_ENDPOINT}/client-downloads/toolkit-linux.tgz --output toolkit-linux.tgz
+        tar -xvzf toolkit-linux.tgz
+        chmod 755 apic
+        rm toolkit-linux.tgz
+
+        ./apic --accept-license --live-help=false
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** LOGIN WITH API-KEY ***"
+        # -----------------------------------------------------------------------------
+        ./apic client-creds:clear
+        ./apic login --server $APIC_MGMT_SERVER --sso --context provider --apiKey $(params.APIC_API_KEY)
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** GET PROVIDER ORGANIZATION, USER REGISTRY AND USER URLS ***"
+        # -----------------------------------------------------------------------------
+        PORG_URL=$(./apic orgs:list --server $APIC_MGMT_SERVER | awk -v porgname="$(params.PORG_NAME)" '$1 == porgname {print $4}')
+        echo "PORG_URL=$PORG_URL"
+
+        USER_REGISTRY_URL=$(./apic user-registries:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) | awk -v regname="${APIC_USER_REGISTRY}" '$1 == regname {print $2}')
+        echo "USER_REGISTRY_URL=$USER_REGISTRY_URL"
+
+        PORG_OWNER_URL=$(./apic users:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --user-registry $APIC_USER_REGISTRY | awk -v user=$APIC_CMC_USER '$1 == user {print $4}')
+        echo "PORG_OWNER_URL=$PORG_OWNER_URL"
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** GET PORTAL SERVICE URL ***"
+        # -----------------------------------------------------------------------------
+
+        APIC_PORTAL_SVC_URL=$(./apic portal-services:list --server $APIC_MGMT_SERVER --scope org --org $(params.PORG_NAME) | awk '{print $4}')
+        echo "APIC_PORTAL_SVC_URL=$APIC_PORTAL_SVC_URL"
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** CREATE NEW CATALOG ***"
+        # -----------------------------------------------------------------------------
+
+        # Catalog definition
+        cat << EOF > demo.json
+        {
+            "type": "catalog",
+            "name": "$(params.CATALOG_NAME)",
+            "title": "$(params.CATALOG_TITLE)",
+            "summary": "$(params.CATALOG_SUMMARY)",
+            "owner_url": "${PORG_OWNER_URL}",
+            "org_url": "${PORG_URL}"
+        }
+        EOF
+
+        cat demo.json
+
+        # Check if catalog already exists
+        CATALOGS=$(./apic catalogs:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) | awk -v catname=$(params.CATALOG_NAME) '$1 == catname { ++count } END { print count }')
+
+        # Create it if it does not exist, otherwise just obtain its URL
+        if [ -z $CATALOGS ]; then
+          CATALOG_URL=$(./apic catalogs:create --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) demo.json | awk '{print $2}')
+          echo "> Catalog created. URL: ${CATALOG_URL} "
+        else 
+          CATALOG_URL=$(./apic catalogs:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) | awk -v catname=$(params.CATALOG_NAME) '$1 == catname { print $2 }')
+          echo "> Catalog already exists. URL: ${CATALOG_URL} "
+        fi
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** ENABLE PORTAL IN THE NEW CATALOG ***"
+        # -----------------------------------------------------------------------------
+
+        cat << EOF | ./apic catalog-settings:update --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --catalog $(params.CATALOG_NAME) -
+        portal:
+          type: $APIC_PORTAL_TYPE
+          portal_service_url: $APIC_PORTAL_SVC_URL
+        EOF
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** CREATE CONSUMER USER ***"
+        # -----------------------------------------------------------------------------
+
+        # User settings
+        cat << EOF > consumer-org-user.json
+        {
+            "type": "user",
+            "name": "$(params.CONSUMER_USER_NAME)",
+            "title": "$(params.CONSUMER_USER_NAME)",
+            "state": "enabled",
+            "identity_provider": "$(params.CATALOG_NAME)-idp",
+            "username": "$(params.CONSUMER_USER_NAME)",
+            "email": "$(params.CONSUMER_USER_EMAIL)",
+            "first_name": "$(params.CONSUMER_USER_FIRST_NAME)",
+            "last_name": "$(params.CONSUMER_USER_LAST_NAME)",
+            "password": "$(params.CONSUMER_USER_PWD)",
+            "org_url": "${PORG_URL}",
+            "user_registry_url": "${USER_REGISTRY_URL}"
+        }
+        EOF
+
+        # Check if user already exists
+        CORG_USER=$(./apic users:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --user-registry $(params.CATALOG_NAME)-catalog | awk  -v user=$(params.CONSUMER_USER_NAME)  '$1 == user { ++count } END { print count }')
+
+        # Create user if it does not exist, otherwise just obtain its URL
+        if [ -z $CORG_USER ]; then
+          OWNER_URL=$(./apic users:create --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --user-registry $(params.CATALOG_NAME)-catalog consumer-org-user.json | awk '{print $4}')
+          echo "> User created. URL: ${OWNER_URL}" 
+        else 
+          OWNER_URL=$(./apic users:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --user-registry $(params.CATALOG_NAME)-catalog | awk -v user=$(params.CONSUMER_USER_NAME) '$1 == user {print $4}')
+          echo "> User already exists. URL: ${OWNER_URL}" 
+        fi
+
+        # -----------------------------------------------------------------------------
+        echo -e "\n*** CREATE CONSUMER ORGANIZATION ***"
+        # -----------------------------------------------------------------------------
+
+        # Organization settings
+        cat << EOF > consumer-org.json
+        {
+            "type": "consumer_org",
+            "name": "$(params.CONSUMER_ORG_NAME)",
+            "title": "$(params.CONSUMER_ORG_NAME)",
+            "summary": "$(params.CONSUMER_USER_FIRST_NAME) $(params.CONSUMER_USER_LAST_NAME)",
+            "state": "enabled",
+            "owner_url": "${OWNER_URL}",
+            "org_url": "${PORG_URL}",
+            "catalog_url": "${CATALOG_URL}"
+        }
+        EOF
+
+        # Check if organization already exists
+        CORG_LIST=$(./apic consumer-orgs:list --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --catalog $(params.CATALOG_NAME) | awk -v conorgname=$(params.CONSUMER_ORG_NAME) '$1 == conorgname { ++count } END { print count }')
+
+        # If it does not exist, create it
+        if [ -z $CORG_LIST ]; then
+          ./apic consumer-orgs:create --server $APIC_MGMT_SERVER --org $(params.PORG_NAME) --catalog $(params.CATALOG_NAME) consumer-org.json
+          echo "> Consumer organization created"
+        fi

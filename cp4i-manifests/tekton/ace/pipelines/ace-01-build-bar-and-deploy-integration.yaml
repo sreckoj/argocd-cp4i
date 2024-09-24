@@ -1,0 +1,80 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: ace-01-build-bar-and-deploy-integration
+  namespace: cp4i-pipelines
+spec:
+  params:
+    - name: GIT_ORGANIZATION
+      description: URL of Git organization that contains application repository
+      type: string
+      default: https://github.com/sreckoj
+    - name: SOURCE_REPO
+      description: Repository with the ACE project source code
+      type: string
+      default: PingService
+    - name: NAMESPACE
+      description: The namespace where integration dashboard instance is created
+      type: string
+      default: cp4i
+    - name: DASHBOARD_NAME
+      description: Name of the integration dashboard instance
+      type: string
+      default: dashboard1
+    - name: DASHBOARD_USER
+      description: Keycloak user that has dashboard admin permissions. 
+      type: string
+      default: dashboard-api-user
+    - name: DASHBOARD_PASSWORD
+      description: Password of the Keycloak user
+      type: string
+      default: cp4iDemo!0112358
+    - name: INTEGRATION_NAME
+      description: The name of deployed integration server instance
+      type: string
+      default: ademo
+  tasks: 
+    - name: build-and-upload-bar
+      params:
+        - name: GIT_ORGANIZATION
+          value: $(params.GIT_ORGANIZATION)
+        - name: SOURCE_REPO
+          value: $(params.SOURCE_REPO)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: DASHBOARD_NAME
+          value: $(params.DASHBOARD_NAME)
+        - name: DASHBOARD_USER
+          value: $(params.DASHBOARD_USER)
+        - name: DASHBOARD_PASSWORD
+          value: $(params.DASHBOARD_PASSWORD)
+      taskRef:
+        kind: Task
+        name: ace-build-and-upload-bar
+      workspaces:
+        - name: ace-build-ws
+          workspace: pipeline-test-ws
+    - name: deploy-integration
+      params:
+        - name: BAR_NAME
+          value: $(params.SOURCE_REPO)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: DASHBOARD_NAME
+          value: $(params.DASHBOARD_NAME)
+        - name: DASHBOARD_USER
+          value: $(params.DASHBOARD_USER)
+        - name: DASHBOARD_PASSWORD
+          value: $(params.DASHBOARD_PASSWORD)
+        - name: INTEGRATION_NAME
+          value: $(params.INTEGRATION_NAME)
+      taskRef:
+        kind: Task
+        name: ace-deploy-integration
+      runAfter:
+        - build-and-upload-bar
+      workspaces:
+        - name: ace-build-ws
+          workspace: pipeline-test-ws
+  workspaces:
+    - name: pipeline-test-ws

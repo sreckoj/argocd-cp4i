@@ -1,0 +1,73 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: ace-deploy-integration
+  namespace: cp4i-pipelines
+spec:
+  description: >-
+    This task creates an instance of integration server 
+    using provided BAR name
+  workspaces:
+    - name: ace-build-ws
+      description: Holds temporary files
+  params:
+    - name: NAMESPACE
+    - name: DASHBOARD_NAME
+    - name: DASHBOARD_USER
+    - name: DASHBOARD_PASSWORD
+    - name: BAR_NAME
+    - name: INTEGRATION_NAME
+  steps:
+    - name: get-dashboard-api-endpoint
+      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        API_EP=$(oc get route -n $(params.NAMESPACE) $(params.DASHBOARD_NAME)-api -o jsonpath='{.spec.host}')
+        echo $API_EP > api_endpoint.txt
+        cat api_endpoint.txt
+    - name: find-bar-url
+      image: quay.io/codefreshplugins/curl-jq:latest
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        API_EP=$(cat api_endpoint.txt)
+        echo "API endpoint: $API_EP"
+        echo "Getting token..."
+        BASIC_AUTH_CREDENTIALS=$(echo -n "$(params.DASHBOARD_USER):$(params.DASHBOARD_PASSWORD)" | base64)
+        TOKEN=$(curl -X POST https://$API_EP/api/v1/tokens -H "Authorization: Basic $BASIC_AUTH_CREDENTIALS" | jq -r '.accessToken')
+        echo "Select BAR URL by BAR name"
+        BAR_URL=$(curl -X GET https://$API_EP/api/v1/bar-files -H "Authorization: Bearer $TOKEN" | jq --arg name $(params.BAR_NAME) -r '.barFiles | .[] | select(.name | contains($name)) .url')
+        echo "BAR URL: $BAR_URL"
+        echo $BAR_URL > bar_url.txt
+    - name: deploy-integration
+      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      workingDir: $(workspaces.ace-build-ws.path)
+      script: |
+        BAR_URL=$(cat bar_url.txt)
+        cat << EOF | oc apply -f -
+        apiVersion: appconnect.ibm.com/v1beta1
+        kind: IntegrationRuntime
+        metadata:
+          labels:
+            backup.appconnect.ibm.com/component: integrationruntime
+          name: $(params.INTEGRATION_NAME)
+          namespace: $(params.NAMESPACE)
+        spec:
+          license:
+            accept: true
+            license: L-XRNH-47FJAW
+            use: CloudPakForIntegrationNonProductionFREE
+          replicas: 1
+          template:
+            spec:
+              containers:
+                - name: runtime
+                  resources:
+                    requests:
+                      cpu: 300m
+                      memory: 368Mi
+          version: '12.0'
+          barURL:
+            - >-
+              $BAR_URL
+          configurations: []
+        EOF

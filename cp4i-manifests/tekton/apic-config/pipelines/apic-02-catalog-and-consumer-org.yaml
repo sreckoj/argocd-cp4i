@@ -1,0 +1,97 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: apic-02-catalog-and-consumer-org
+  namespace: cp4i-pipelines
+spec:
+  params:
+    - name: APIC_API_KEY
+      description: 'API Connect API-key. Please see: https://www.ibm.com/docs/en/api-connect/10.0.x?topic=applications-managing-platform-rest-api-keys'
+      type: string
+      default: '8beb2ada-13b6-4ccd-92e1-5fae3aedd860'
+    - name: APIC_INST_NAME
+      description: API Connect instance name
+      type: string
+      default: apic1
+    - name: NAMESPACE
+      description: The namespace that contains the instance
+      type: string
+      default: cp4i
+    - name: PORG_NAME
+      description: Provider organzation name
+      type: string
+      default: cp4i-demo-org
+    - name: CATALOG_NAME
+      description: Catalog name
+      type: string
+      default: demo
+    - name: CATALOG_TITLE
+      description: Catalog title
+      type: string
+      default: Demo
+    - name: CATALOG_SUMMARY
+      description: Catalog summary
+      type: string
+      default: Demo Catalog
+    - name: CONSUMER_ORG_NAME
+      description: Consumer organzation name
+      type: string
+      default: AppDevOrg
+    - name: CONSUMER_USER_NAME
+      description: Consumer organzation owner user name
+      type: string
+      default: demo_user
+    - name: CONSUMER_USER_PWD
+      description: Consumer organzation owner password
+      type: string
+      default: apicDemo!0112358
+    - name: CONSUMER_USER_FIRST_NAME
+      description: Consumer organzation owner first name
+      type: string
+      default: Demo
+    - name: CONSUMER_USER_LAST_NAME
+      description: Consumer organzation owner last name
+      type: string
+      default: User
+    - name: CONSUMER_USER_EMAIL
+      description: Consumer organzation owner email
+      type: string
+      default: demo@cp4i.net
+
+  tasks: 
+    - name: config-apic-catalog-and-consumer
+      params:
+        - name: APIC_API_KEY
+          value: $(params.APIC_API_KEY)
+        - name: APIC_INST_NAME
+          value: $(params.APIC_INST_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: PORG_NAME
+          value: $(params.PORG_NAME)
+        - name: CATALOG_NAME
+          value: $(params.CATALOG_NAME)
+        - name: CATALOG_TITLE
+          value: $(params.CATALOG_TITLE)
+        - name: CATALOG_SUMMARY
+          value: $(params.CATALOG_SUMMARY)
+        - name: CONSUMER_ORG_NAME
+          value: $(params.CONSUMER_ORG_NAME)
+        - name: CONSUMER_USER_NAME
+          value: $(params.CONSUMER_USER_NAME)
+        - name: CONSUMER_USER_PWD
+          value: $(params.CONSUMER_USER_PWD)
+        - name: CONSUMER_USER_FIRST_NAME
+          value: $(params.CONSUMER_USER_FIRST_NAME)
+        - name: CONSUMER_USER_LAST_NAME
+          value: $(params.CONSUMER_USER_LAST_NAME)
+        - name: CONSUMER_USER_EMAIL
+          value: $(params.CONSUMER_USER_EMAIL)
+      taskRef:
+        kind: Task
+        name: apic-catalog-and-consumer-org
+      workspaces:
+        - name: cp4i-ws
+          workspace: cp4i-ws
+  workspaces:
+    - name: cp4i-ws

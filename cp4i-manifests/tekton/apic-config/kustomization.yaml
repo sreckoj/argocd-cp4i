@@ -1,0 +1,7 @@
+resources:
+# Tasks:
+- tasks/apic-provider-org.yaml
+- tasks/apic-catalog-and-consumer-org.yaml
+# Pipelines
+- pipelines/apic-01-provider-org.yaml
+- pipelines/apic-02-catalog-and-consumer-org.yaml

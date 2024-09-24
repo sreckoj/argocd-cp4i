@@ -1,0 +1,66 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: apic-01-provider-org
+  namespace: cp4i-pipelines
+spec:
+  params:
+    - name: APIC_INST_NAME
+      description: API Connect instance name
+      type: string
+      default: apic1
+    - name: NAMESPACE
+      description: The namespace that contains the instance
+      type: string
+      default: cp4i
+    - name: INSTALL_MAILCATCHER
+      description: Should we install mailcatcher?
+      type: string
+      default: true
+    - name: MAILSERVER_HOST
+      description: Mail server host
+      type: string
+      default: postfix.mailcatcher.svc.cluster.local
+    - name: MAILSERVER_PORT
+      description: Mail server port
+      type: string
+      default: 25     
+    - name: APIC_CMC_USER_EMAIL
+      description: The admin user email address
+      type: string
+      default: admin@cp4i.demo.net
+    - name: PORG_NAME
+      description: Provider organzation name
+      type: string
+      default: cp4i-demo-org
+    - name: PORG_TITLE
+      description: Provider organzation title
+      type: string
+      default: CP4I Demo Provider Org
+  tasks: 
+    - name: config-apic
+      params:
+        - name: APIC_INST_NAME
+          value: $(params.APIC_INST_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: INSTALL_MAILCATCHER
+          value: $(params.INSTALL_MAILCATCHER)
+        - name: MAILSERVER_HOST
+          value: $(params.MAILSERVER_HOST)
+        - name: MAILSERVER_PORT
+          value: $(params.MAILSERVER_PORT)
+        - name: APIC_CMC_USER_EMAIL
+          value: $(params.APIC_CMC_USER_EMAIL)
+        - name: PORG_NAME
+          value: $(params.PORG_NAME)
+        - name: PORG_TITLE
+          value: $(params.PORG_TITLE)
+      taskRef:
+        kind: Task
+        name: apic-provider-org
+      workspaces:
+        - name: cp4i-ws
+          workspace: cp4i-ws
+  workspaces:
+    - name: cp4i-ws
