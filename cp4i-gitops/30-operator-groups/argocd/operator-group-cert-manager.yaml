@@ -12,7 +12,7 @@ spec:
   project: default 
   source: 
     path: cp4i-manifests/operator-groups/cert-manager-operator-group
-    repoURL: https://github.ibm.com/srecko-janjic/argocd-cp4i
+    repoURL: https://github.com/sreckoj/argocd-cp4i
     targetRevision: main
   syncPolicy: 
     automated:
