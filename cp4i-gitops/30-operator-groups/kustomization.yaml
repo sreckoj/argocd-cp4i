@@ -1,0 +1,3 @@
+resources:
+- argocd/operator-group-cert-manager.yaml
+

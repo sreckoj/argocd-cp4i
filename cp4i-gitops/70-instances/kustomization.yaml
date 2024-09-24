@@ -1,0 +1,6 @@
+resources:
+- argocd/instance-platform-ui.yaml
+#- argocd/instance-integration-runtime.yaml  # using already availabe BAR file
+#- argocd/instance-dashboard1.yaml
+#- argocd/instance-apic1.yaml
+

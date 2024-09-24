@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-source-platform-navigator
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  destination:
+    namespace: openshift-gitops
+    server: https://kubernetes.default.svc 
+  project: default 
+  source: 
+    path: cp4i-manifests/catalog-sources/ibm-integration-platform-navigator-catalog
+    repoURL: https://github.ibm.com/srecko-janjic/argocd-cp4i
+    targetRevision: main
+  syncPolicy: 
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,4 @@
+resources:
+- argocd/namespace-cp4i.yaml
+- argocd/namespace-cert-manager-operator.yaml
+- argocd/namespace-ibm-common-services.yaml

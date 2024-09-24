@@ -1,0 +1,12 @@
+resources:
+- argocd/operator-apiconnect.yaml
+#- argocd/operator-appconnect.yaml
+#- argocd/operator-aspera.yaml
+#- argocd/operator-asset-repository.yaml
+#- argocd/operator-datapower.yaml
+#- argocd/operator-eem.yaml
+#- argocd/operator-eventstreams.yaml
+#- argocd/operator-foundational-services.yaml
+#- argocd/operator-mq.yaml
+- argocd/operator-platform-navigator.yaml
+

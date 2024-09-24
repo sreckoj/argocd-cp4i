@@ -1,0 +1,3 @@
+resources:
+  - argocd/tekton-apic-config.yaml
+  - argocd/tekton-ace.yaml

@@ -1,0 +1,10 @@
+resources:
+- 10-namespaces/10-namespaces.yaml
+- 20-catalog-sources/20-catalog-sources.yaml
+- 30-operator-groups/30-operator-groups.yaml
+- 40-cert-manager-operator/40-cert-manager-operator.yaml
+- 50-foundational-service-operator/50-foundational-service-operator.yaml
+- 60-cloudpak-operators/60-cloudpak-operators.yaml
+- 70-instances/70-instances.yaml
+#- 80-configurations/80-configurations.yaml
+- 90-tekton-pipelines/90-tekton-pipelines.yaml

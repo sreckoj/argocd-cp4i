@@ -1,0 +1,12 @@
+resources:
+- argocd/catalog-source-apiconnect.yaml
+- argocd/catalog-source-appconnect.yaml
+- argocd/catalog-source-aspera.yaml
+- argocd/catalog-source-asset-repository.yaml
+- argocd/catalog-source-datapower.yaml
+- argocd/catalog-source-eem.yaml
+- argocd/catalog-source-eventstreams.yaml
+- argocd/catalog-source-foundational-services.yaml
+- argocd/catalog-source-mq.yaml
+- argocd/catalog-source-platform-navigator.yaml
+
